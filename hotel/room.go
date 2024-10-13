@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type EventType int
@@ -27,6 +29,8 @@ type Event[ClientMetadata any, MessageType any] struct {
 }
 
 type Room[RoomMetadata any, ClientMetadata any, MessageType any] struct {
+	initGroup errgroup.Group
+
 	id       string
 	metadata *RoomMetadata
 	clients  map[*Client[ClientMetadata, MessageType]]struct{}
@@ -36,7 +40,7 @@ type Room[RoomMetadata any, ClientMetadata any, MessageType any] struct {
 	eventsCh chan Event[ClientMetadata, MessageType]
 }
 
-func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]) (*Room[RoomMetadata, ClientMetadata, MessageType], error) {
+func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]) *Room[RoomMetadata, ClientMetadata, MessageType] {
 	ctx, cancel := context.WithCancel(context.Background())
 	eventsCh := make(chan Event[ClientMetadata, MessageType], 256)
 	room := &Room[RoomMetadata, ClientMetadata, MessageType]{
@@ -46,25 +50,21 @@ func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, i
 		cancel:   cancel,
 		eventsCh: eventsCh,
 	}
-	// We will wait for potential errors from initialization on this channel.
-	initCh := make(chan error)
-	// Run the room init and handling within a separate goroutine.
-	go func() {
+	// Run the room init and handling within separate goroutines.
+	room.initGroup.Go(func() error {
 		metadata, err := init(id)
 		if err != nil {
-			initCh <- err
-			return
+			return err
 		}
-		close(initCh)
 		room.metadata = metadata
-		handler(ctx, room)
-		// When handler returns, close the room.
-		room.Close()
-	}()
-	if err := <-initCh; err != nil {
-		return nil, err
-	}
-	return room, nil
+		go func() {
+			handler(ctx, room)
+			// When handler returns, close the room.
+			room.Close()
+		}()
+		return nil
+	})
+	return room
 }
 
 func (r *Room[RoomMetadata, ClientMetadata, MessageType]) ID() string {
