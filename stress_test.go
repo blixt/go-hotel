@@ -38,14 +38,16 @@ func testRoom(t *testing.T, roomID string) {
 	// Join clients
 	for i := 0; i < maxClients; i++ {
 		wg.Add(1)
-		go func(userID int) {
+		go func(i int) {
+			userID := fmt.Sprintf("User %d", i)
+
 			defer wg.Done()
-			conn := connectToRoom(t, roomID)
+			conn := connectToRoom(t, roomID, userID)
 			defer conn.Close()
 
 			// Send messages
 			for j := 0; j < messageCount; j++ {
-				msg := fmt.Sprintf("Message %d from user %d", j, userID)
+				msg := fmt.Sprintf("Message %d from %s", j, userID)
 				err := conn.WriteJSON(Message{Content: msg})
 				if err != nil {
 					t.Errorf("Failed to send message: %v", err)
@@ -74,14 +76,16 @@ func testRoom(t *testing.T, roomID string) {
 	t.Logf("Recreating room %s with half the users", roomID)
 	for i := 0; i < maxClients/2; i++ {
 		wg.Add(1)
-		go func(userID int) {
+		go func(i int) {
+			userID := fmt.Sprintf("User %d", i)
+
 			defer wg.Done()
-			conn := connectToRoom(t, roomID)
+			conn := connectToRoom(t, roomID, userID)
 			defer conn.Close()
 
 			// Send and receive a few messages
 			for j := 0; j < messageCount/2; j++ {
-				msg := fmt.Sprintf("Recreated room message %d from user %d", j, userID)
+				msg := fmt.Sprintf("Recreated room message %d from %s", j, userID)
 				err := conn.WriteJSON(Message{Content: msg})
 				if err != nil {
 					t.Errorf("Failed to send message in recreated room: %v", err)
@@ -100,9 +104,12 @@ func testRoom(t *testing.T, roomID string) {
 	wg.Wait()
 }
 
-func connectToRoom(t *testing.T, roomID string) *websocket.Conn {
+func connectToRoom(t *testing.T, roomID, userID string) *websocket.Conn {
 	u, _ := url.Parse(wsServerAddr)
 	u.Path += "/" + roomID
+	qs := u.Query()
+	qs.Set("name", userID)
+	u.RawQuery = qs.Encode()
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), http.Header{})
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)

@@ -52,6 +52,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	// Get room ID from path
 	pathSegments := strings.Split(r.URL.Path, "/")
 	roomID := pathSegments[len(pathSegments)-1]
+	userName := r.URL.Query().Get("name")
 
 	// Get or create the room
 	room, err := roomManager.GetOrCreateRoom(roomID)
@@ -63,7 +64,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 
 	// Create a new client
 	client, err := room.NewClient(&UserMetadata{
-		Name: "Anonymous", // Extract name from query parameters if needed
+		Name: userName,
 	})
 	if err != nil {
 		log.Println("Client creation error:", err)
@@ -129,7 +130,7 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 			switch event.Type {
 			case hotel.EventJoin:
 				userName := event.Client.Metadata().Name
-				log.Printf("User %s joined room %s", userName, room.ID())
+				log.Printf("%s joined room %s", userName, room.ID())
 				// Send a welcome message with the user's name
 				welcomeMsg := Message{
 					From:    "System",
@@ -138,7 +139,7 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 				room.BroadcastExcept(event.Client, welcomeMsg)
 			case hotel.EventLeave:
 				userName := event.Client.Metadata().Name
-				log.Printf("User %s left room %s", userName, room.ID())
+				log.Printf("%s left room %s", userName, room.ID())
 				// Notify others with the user's name
 				leaveMsg := Message{
 					From:    "System",
@@ -147,7 +148,7 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 				room.BroadcastExcept(event.Client, leaveMsg)
 			case hotel.EventMessage:
 				// Broadcast the message to all users except the sender
-				log.Printf("User %s is broadcasting message to room %s: %s", event.Client.Metadata().Name, room.ID(), event.Message.Content)
+				log.Printf("%s is broadcasting message to room %s: %s", event.Client.Metadata().Name, room.ID(), event.Message.Content)
 				room.BroadcastExcept(event.Client, event.Message)
 			}
 		case <-ctx.Done():
