@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -28,7 +29,7 @@ type Room[RoomMetadata any, ClientMetadata any, MessageType any] struct {
 
 func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]) *Room[RoomMetadata, ClientMetadata, MessageType] {
 	ctx, cancel := context.WithCancel(context.Background())
-	eventsCh := make(chan Event[ClientMetadata, MessageType], 256)
+	eventsCh := make(chan Event[ClientMetadata, MessageType], 1024)
 	room := &Room[RoomMetadata, ClientMetadata, MessageType]{
 		id:       id,
 		clients:  make(map[*Client[ClientMetadata, MessageType]]struct{}),
@@ -36,17 +37,34 @@ func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, i
 		cancel:   cancel,
 		eventsCh: eventsCh,
 	}
-	// Run the room init and handling within separate goroutines.
 	room.initGroup.Go(func() error {
+		defer func() {
+			if err := recover(); err != nil {
+				const size = 64 << 10
+				buf := make([]byte, size)
+				buf = buf[:runtime.Stack(buf, false)]
+				log.Printf("Room %s init panicked: %v\n%s", room.id, err, buf)
+				room.Close()
+			}
+		}()
+
 		metadata, err := init(id)
 		if err != nil {
 			return err
 		}
 		room.metadata = metadata
+
 		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					const size = 64 << 10
+					buf := make([]byte, size)
+					buf = buf[:runtime.Stack(buf, false)]
+					log.Printf("Room %s handler panicked: %v\n%s", room.id, err, buf)
+				}
+				room.Close()
+			}()
 			handler(ctx, room)
-			// When handler returns, close the room.
-			room.Close()
 		}()
 		return nil
 	})
@@ -80,10 +98,10 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) NewClient(metadata *Cl
 		newClients[client] = struct{}{}
 		r.clients = newClients
 		r.mu.Unlock()
-		r.eventsCh <- Event[ClientMetadata, MessageType]{
+		r.sendEvent(Event[ClientMetadata, MessageType]{
 			Type:   EventJoin,
 			Client: client,
-		}
+		})
 		return client, nil
 	}
 }
@@ -102,10 +120,10 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) RemoveClient(client *C
 	}
 	r.clients = newClients
 	r.mu.Unlock()
-	r.eventsCh <- Event[ClientMetadata, MessageType]{
+	r.sendEvent(Event[ClientMetadata, MessageType]{
 		Type:   EventLeave,
 		Client: client,
-	}
+	})
 	client.Close()
 	return nil
 }
@@ -117,11 +135,11 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) HandleClientMessage(cl
 	if !exists {
 		return fmt.Errorf("client not found")
 	}
-	r.eventsCh <- Event[ClientMetadata, MessageType]{
+	r.sendEvent(Event[ClientMetadata, MessageType]{
 		Type:    EventMessage,
 		Client:  client,
 		Message: message,
-	}
+	})
 	return nil
 }
 
@@ -173,6 +191,9 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) Close() {
 	}
 	r.clients = nil
 	r.mu.Unlock()
+	// TODO: Figure out if/when we should close the events channel. Close() is
+	// public and so are methods writing to the channel, so it's very difficult
+	// to prove that writes and close happen on the same goroutine.
 	close(r.eventsCh)
 }
 
@@ -197,4 +218,13 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) Clients() []*Client[Cl
 		clientsSlice = append(clientsSlice, client)
 	}
 	return clientsSlice
+}
+
+func (r *Room[RoomMetadata, ClientMetadata, MessageType]) sendEvent(event Event[ClientMetadata, MessageType]) {
+	select {
+	case r.eventsCh <- event:
+	default:
+		log.Printf("Warning: Room %s events channel is full. Cannot send %s. Closing room.", r.id, event.Type)
+		r.Close()
+	}
 }
