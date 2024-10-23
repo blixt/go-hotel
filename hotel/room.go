@@ -10,23 +10,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type EventType int
-
-const (
-	EventJoin EventType = iota
-	EventLeave
-	EventMessage
-)
-
 type RoomInitFunc[RoomMetadata any] func(id string) (metadata *RoomMetadata, err error)
 
 type RoomHandlerFunc[RoomMetadata any, ClientMetadata any, MessageType any] func(ctx context.Context, room *Room[RoomMetadata, ClientMetadata, MessageType])
-
-type Event[ClientMetadata any, MessageType any] struct {
-	Type    EventType
-	Client  *Client[ClientMetadata, MessageType]
-	Message MessageType
-}
 
 type Room[RoomMetadata any, ClientMetadata any, MessageType any] struct {
 	initGroup errgroup.Group
