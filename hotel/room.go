@@ -7,6 +7,7 @@ import (
 	"log"
 	"runtime"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -18,14 +19,19 @@ type RoomHandlerFunc[RoomMetadata any, ClientMetadata any, MessageType any] func
 type Room[RoomMetadata any, ClientMetadata any, MessageType any] struct {
 	initGroup errgroup.Group
 
-	id       string
-	metadata *RoomMetadata
-	clients  map[*Client[ClientMetadata, MessageType]]struct{}
-	mu       sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	eventsCh chan Event[ClientMetadata, MessageType]
+	id           string
+	metadata     *RoomMetadata
+	clients      map[*Client[ClientMetadata, MessageType]]struct{}
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	eventsCh     chan Event[ClientMetadata, MessageType]
+	closeTimer   *time.Timer
+	closeTimerMu sync.Mutex
 }
+
+// TODO: This should be configurable on either a per-room or global basis.
+const DefaultAutoCloseDelay = 2 * time.Minute
 
 func newRoom[RoomMetadata any, ClientMetadata any, MessageType any](id string, init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]) *Room[RoomMetadata, ClientMetadata, MessageType] {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -90,6 +96,9 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) NewClient(metadata *Cl
 		r.mu.Unlock()
 		return nil, errors.New("cannot add client: room is closed")
 	default:
+		// Cancel any pending close timer
+		r.cancelCloseTimer()
+
 		client := newClient[ClientMetadata, MessageType](metadata)
 		newClients := make(map[*Client[ClientMetadata, MessageType]]struct{}, len(r.clients)+1)
 		for c := range r.clients {
@@ -119,12 +128,19 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) RemoveClient(client *C
 		}
 	}
 	r.clients = newClients
+	isEmpty := len(newClients) == 0
 	r.mu.Unlock()
+
 	r.sendEvent(Event[ClientMetadata, MessageType]{
 		Type:   EventLeave,
 		Client: client,
 	})
 	client.Close()
+
+	// Schedule room closure if empty
+	if isEmpty {
+		r.scheduleClose()
+	}
 	return nil
 }
 
@@ -184,6 +200,7 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) BroadcastExcept(except
 }
 
 func (r *Room[RoomMetadata, ClientMetadata, MessageType]) Close() {
+	r.cancelCloseTimer()
 	r.cancel()
 	r.mu.Lock()
 	for client := range r.clients {
@@ -226,5 +243,33 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) sendEvent(event Event[
 	default:
 		log.Printf("Warning: Room %s events channel is full. Cannot send %s. Closing room.", r.id, event.Type)
 		r.Close()
+	}
+}
+
+func (r *Room[RoomMetadata, ClientMetadata, MessageType]) scheduleClose() {
+	r.closeTimerMu.Lock()
+	defer r.closeTimerMu.Unlock()
+
+	if r.closeTimer != nil {
+		r.closeTimer.Stop()
+	}
+	r.closeTimer = time.AfterFunc(DefaultAutoCloseDelay, func() {
+		r.mu.RLock()
+		isEmpty := len(r.clients) == 0
+		r.mu.RUnlock()
+
+		if isEmpty {
+			r.Close()
+		}
+	})
+}
+
+func (r *Room[RoomMetadata, ClientMetadata, MessageType]) cancelCloseTimer() {
+	r.closeTimerMu.Lock()
+	defer r.closeTimerMu.Unlock()
+
+	if r.closeTimer != nil {
+		r.closeTimer.Stop()
+		r.closeTimer = nil
 	}
 }
