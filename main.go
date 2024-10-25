@@ -129,26 +129,9 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				// Split the message into type and payload
-				parts := strings.SplitN(string(rawMsg), " ", 2)
-				if len(parts) != 2 {
-					log.Printf("Invalid message format: %s", string(rawMsg))
-					continue
-				}
-
-				msgType := parts[0]
-				payload := parts[1]
-
-				// Create new message instance of the correct type
-				msg, err := messageRegistry.Create(msgType)
+				msg, err := parseWebSocketMessage(rawMsg)
 				if err != nil {
-					log.Printf("Message creation error: %v", err)
-					continue
-				}
-
-				// Parse the JSON payload
-				if err := json.Unmarshal([]byte(payload), msg); err != nil {
-					log.Printf("Message unmarshal error: %v", err)
+					log.Printf("Message parse error: %v", err)
 					continue
 				}
 
@@ -161,17 +144,13 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer conn.Close()
 		for msg := range client.Receive() {
-			// Marshal the message to JSON
-			payload, err := json.Marshal(msg)
+			data, err := formatWebSocketMessage(msg)
 			if err != nil {
-				log.Printf("Message marshal error: %v", err)
+				log.Printf("Message format error: %v", err)
 				continue
 			}
 
-			// Format as "type payload"
-			outMsg := fmt.Sprintf("%s %s", msg.Type(), string(payload))
-
-			err = conn.WriteMessage(websocket.TextMessage, []byte(outMsg))
+			err = conn.WriteMessage(websocket.TextMessage, data)
 			if err != nil {
 				log.Println("Write error:", err)
 				return
@@ -221,4 +200,35 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 			return
 		}
 	}
+}
+
+// formatWebSocketMessage formats a message for websocket transmission
+func formatWebSocketMessage(msg hotel.Message) ([]byte, error) {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal error: %v", err)
+	}
+	return []byte(fmt.Sprintf("%s %s", msg.Type(), string(payload))), nil
+}
+
+// parseWebSocketMessage parses a websocket message into a hotel.Message
+func parseWebSocketMessage(data []byte) (hotel.Message, error) {
+	parts := strings.SplitN(string(data), " ", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid message format: %s", string(data))
+	}
+
+	msgType := parts[0]
+	payload := []byte(parts[1])
+
+	msg, err := messageRegistry.Create(msgType)
+	if err != nil {
+		return nil, fmt.Errorf("message creation error: %v", err)
+	}
+
+	if err := json.Unmarshal(payload, msg); err != nil {
+		return nil, fmt.Errorf("unmarshal error: %v", err)
+	}
+
+	return msg, nil
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -87,14 +86,15 @@ func testRoom(t *testing.T, roomID string) {
 							return
 						}
 
-						var msg Message
-						if err := json.Unmarshal(data, &msg); err != nil {
-							errChan <- fmt.Errorf("client %d unmarshal error: %v", i, err)
+						msg, err := parseWebSocketMessage(data)
+						if err != nil {
+							errChan <- fmt.Errorf("client %d parse error: %v", i, err)
 							cancel()
 							return
 						}
 
-						if msg.From == "System" {
+						// Skip non-chat messages
+						if _, ok := msg.(*ChatMessage); !ok {
 							continue
 						}
 
@@ -113,8 +113,18 @@ func testRoom(t *testing.T, roomID string) {
 
 			// Send messages
 			for j := 0; j < messageCount; j++ {
-				msg := fmt.Sprintf("Message %d from %s", j, userID)
-				err := conn.WriteJSON(Message{Content: msg})
+				msg := ChatMessage{
+					Name:    userID,
+					Content: fmt.Sprintf("Message %d from %s", j, userID),
+				}
+
+				data, err := formatWebSocketMessage(msg)
+				if err != nil {
+					t.Errorf("Failed to format message: %v", err)
+					return
+				}
+
+				err = conn.WriteMessage(websocket.TextMessage, data)
 				if err != nil {
 					t.Errorf("Failed to send message: %v", err)
 					return
