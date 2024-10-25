@@ -211,7 +211,7 @@ func (r *Room[RoomMetadata, ClientMetadata, MessageType]) Close() {
 	// TODO: Figure out if/when we should close the events channel. Close() is
 	// public and so are methods writing to the channel, so it's very difficult
 	// to prove that writes and close happen on the same goroutine.
-	close(r.eventsCh)
+	// close(r.eventsCh)
 }
 
 func (r *Room[RoomMetadata, ClientMetadata, MessageType]) FindClient(predicate func(*ClientMetadata) bool) *Client[ClientMetadata, MessageType] {

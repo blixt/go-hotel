@@ -121,12 +121,7 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 
 	for {
 		select {
-		case event, ok := <-room.Events():
-			if !ok {
-				// Room is closed
-				log.Printf("Room %s is closing", room.ID())
-				return
-			}
+		case event := <-room.Events():
 			switch event.Type {
 			case hotel.EventJoin:
 				userName := event.Client.Metadata().Name
