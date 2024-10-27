@@ -5,22 +5,22 @@ import (
 	"sync"
 )
 
-type Hotel[RoomMetadata any, ClientMetadata any, MessageType any] struct {
+type Hotel[RoomMetadata, ClientMetadata, DataType any] struct {
 	mu      sync.RWMutex
-	rooms   map[string]*Room[RoomMetadata, ClientMetadata, MessageType]
+	rooms   map[string]*Room[RoomMetadata, ClientMetadata, DataType]
 	init    RoomInitFunc[RoomMetadata]
-	handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]
+	handler RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType]
 }
 
-func New[RoomMetadata any, ClientMetadata any, MessageType any](init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, MessageType]) *Hotel[RoomMetadata, ClientMetadata, MessageType] {
-	return &Hotel[RoomMetadata, ClientMetadata, MessageType]{
-		rooms:   make(map[string]*Room[RoomMetadata, ClientMetadata, MessageType]),
+func New[RoomMetadata, ClientMetadata, DataType any](init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType]) *Hotel[RoomMetadata, ClientMetadata, DataType] {
+	return &Hotel[RoomMetadata, ClientMetadata, DataType]{
+		rooms:   make(map[string]*Room[RoomMetadata, ClientMetadata, DataType]),
 		init:    init,
 		handler: handler,
 	}
 }
 
-func (h *Hotel[RoomMetadata, ClientMetadata, MessageType]) GetOrCreateRoom(id string) (*Room[RoomMetadata, ClientMetadata, MessageType], error) {
+func (h *Hotel[RoomMetadata, ClientMetadata, DataType]) GetOrCreateRoom(id string) (*Room[RoomMetadata, ClientMetadata, DataType], error) {
 	if id == "" {
 		return nil, errors.New("invalid room id: cannot be empty")
 	}

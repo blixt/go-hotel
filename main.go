@@ -59,7 +59,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // Message registry for type handling
-var messageRegistry = hotel.MessageRegistry{}
+var messageRegistry = hotel.MessageRegistry[hotel.Message]{}
 
 // Initialize message types
 func init() {
@@ -135,7 +135,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 
-				room.HandleClientMessage(client, msg)
+				room.HandleClientData(client, msg)
 			}
 		}
 	}()
@@ -176,22 +176,23 @@ func roomHandler(ctx context.Context, room *hotel.Room[RoomMetadata, UserMetadat
 		case event := <-room.Events():
 			switch event.Type {
 			case hotel.EventJoin:
+				// A client joined the room.
 				name := event.Client.Metadata().Name
 				log.Printf("%s joined room %s", name, room.ID())
-				room.BroadcastExcept(event.Client, &JoinMessage{
-					Name: name,
-				})
+				room.BroadcastExcept(event.Client, &JoinMessage{Name: name})
 			case hotel.EventLeave:
+				// A client left the room.
 				name := event.Client.Metadata().Name
 				log.Printf("%s left room %s", name, room.ID())
-				room.BroadcastExcept(event.Client, &LeaveMessage{
-					Name: name,
-				})
-			case hotel.EventMessage:
-				if chatMsg, ok := event.Message.(*ChatMessage); ok {
-					log.Printf("%s is broadcasting message to room %s: %s",
-						event.Client.Metadata().Name, room.ID(), chatMsg.Content)
-					room.BroadcastExcept(event.Client, event.Message)
+				room.BroadcastExcept(event.Client, &LeaveMessage{Name: name})
+			case hotel.EventCustom:
+				// Incoming message from a client.
+				switch msg := event.Data.(type) {
+				case *ChatMessage:
+					log.Printf("<%s> in %s: %s", event.Client.Metadata().Name, room.ID(), msg.Content)
+					room.BroadcastExcept(event.Client, event.Data)
+				default:
+					log.Printf("Unhandled message type: %T", msg)
 				}
 			}
 		case <-ctx.Done():

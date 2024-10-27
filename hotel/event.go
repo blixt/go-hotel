@@ -10,8 +10,8 @@ func (et EventType) String() string {
 		return "EventJoin"
 	case EventLeave:
 		return "EventLeave"
-	case EventMessage:
-		return "EventMessage"
+	case EventCustom:
+		return "EventCustom"
 	}
 	return fmt.Sprintf("<!EventType %d>", et)
 }
@@ -19,11 +19,11 @@ func (et EventType) String() string {
 const (
 	EventJoin EventType = iota
 	EventLeave
-	EventMessage
+	EventCustom
 )
 
-type Event[ClientMetadata any, MessageType any] struct {
-	Type    EventType
-	Client  *Client[ClientMetadata, MessageType]
-	Message MessageType
+type Event[ClientMetadata, DataType any] struct {
+	Type   EventType
+	Client *Client[ClientMetadata, DataType]
+	Data   DataType
 }

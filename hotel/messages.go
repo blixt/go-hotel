@@ -5,14 +5,18 @@ import (
 	"reflect"
 )
 
+// TODO: Add in Envelope and User concepts
+// Envelope points at a User and a Message
+// User is backed by one or more Client instances (authed and has id)
+
 type Message interface {
 	Type() string
 }
 
-type MessageRegistry map[string]reflect.Type
+type MessageRegistry[M Message] map[string]reflect.Type
 
 // Register adds one or more message types to the registry.
-func (r MessageRegistry) Register(msgs ...Message) {
+func (r MessageRegistry[M]) Register(msgs ...M) {
 	for _, msg := range msgs {
 		if _, ok := r[msg.Type()]; ok {
 			panic(fmt.Sprintf("Message type %q was already registered", msg.Type()))
@@ -21,9 +25,10 @@ func (r MessageRegistry) Register(msgs ...Message) {
 	}
 }
 
-func (r MessageRegistry) Create(msgType string) (Message, error) {
+func (r MessageRegistry[M]) Create(msgType string) (msg M, err error) {
 	if t, ok := r[msgType]; ok {
-		return reflect.New(t).Interface().(Message), nil
+		return reflect.New(t).Interface().(M), nil
 	}
-	return nil, fmt.Errorf("unknown message type: %q", msgType)
+	err = fmt.Errorf("unknown message type: %q", msgType)
+	return
 }

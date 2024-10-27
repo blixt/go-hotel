@@ -6,33 +6,33 @@ import (
 	"sync"
 )
 
-type Client[ClientMetadata any, MessageType any] struct {
+type Client[ClientMetadata, DataType any] struct {
 	metadata  *ClientMetadata
-	bufferCh  chan MessageType
-	sendCh    chan MessageType
+	bufferCh  chan DataType
+	sendCh    chan DataType
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 }
 
-func newClient[ClientMetadata any, MessageType any](metadata *ClientMetadata) *Client[ClientMetadata, MessageType] {
+func newClient[ClientMetadata, DataType any](metadata *ClientMetadata) *Client[ClientMetadata, DataType] {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client[ClientMetadata, MessageType]{
+	c := &Client[ClientMetadata, DataType]{
 		metadata: metadata,
-		bufferCh: make(chan MessageType, 256),
-		sendCh:   make(chan MessageType),
+		bufferCh: make(chan DataType, 256),
+		sendCh:   make(chan DataType),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
-	// Forward messages sent to sendCh (from any goroutine) to a channel that is
-	// synchronized to a single goroutine.
+	// Forward event data sent to sendCh (from any goroutine) to a channel that
+	// is synchronized to a single goroutine.
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				close(c.sendCh)
 				return
-			case msg := <-c.bufferCh:
+			case data := <-c.bufferCh:
 				// Forwarding to sendCh will always block until the user code
 				// has read from the Receive() channel. If the buffer channel
 				// fills up, then the send method will close the client, which
@@ -41,7 +41,7 @@ func newClient[ClientMetadata any, MessageType any](metadata *ClientMetadata) *C
 				case <-ctx.Done():
 					close(c.sendCh)
 					return
-				case c.sendCh <- msg:
+				case c.sendCh <- data:
 					// All good, keep going.
 				}
 			}
@@ -50,19 +50,19 @@ func newClient[ClientMetadata any, MessageType any](metadata *ClientMetadata) *C
 	return c
 }
 
-func (c *Client[ClientMetadata, MessageType]) Context() context.Context {
+func (c *Client[ClientMetadata, DataType]) Context() context.Context {
 	return c.ctx
 }
 
-func (c *Client[ClientMetadata, MessageType]) Metadata() *ClientMetadata {
+func (c *Client[ClientMetadata, DataType]) Metadata() *ClientMetadata {
 	return c.metadata
 }
 
-func (c *Client[ClientMetadata, MessageType]) send(message MessageType) error {
+func (c *Client[ClientMetadata, DataType]) send(data DataType) error {
 	select {
 	case <-c.ctx.Done():
 		return errors.New("client disconnected")
-	case c.bufferCh <- message:
+	case c.bufferCh <- data:
 		return nil
 	default:
 		// Channel is full, disconnect the client
@@ -71,12 +71,12 @@ func (c *Client[ClientMetadata, MessageType]) send(message MessageType) error {
 	}
 }
 
-func (c *Client[ClientMetadata, MessageType]) Receive() <-chan MessageType {
+func (c *Client[ClientMetadata, DataType]) Receive() <-chan DataType {
 	// Return the channel that only the internal client goroutine writes to.
 	return c.sendCh
 }
 
-func (c *Client[ClientMetadata, MessageType]) Close() {
+func (c *Client[ClientMetadata, DataType]) Close() {
 	c.closeOnce.Do(func() {
 		c.cancel()
 	})
