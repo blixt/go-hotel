@@ -31,6 +31,7 @@ enableMapSet();
  * @typedef {Object} LogAction
  * @property {"LOG"} type
  * @property {string} message
+ * @property {string} [color] - Tailwind color class
  */
 
 /**
@@ -80,9 +81,15 @@ enableMapSet();
  */
 
 /**
+ * @typedef {Object} LogEntry
+ * @property {string} message - The message to display
+ * @property {string} color - Tailwind color class to apply
+ */
+
+/**
  * @typedef {Object} State
  * @property {ConnectionState} connectionState
- * @property {string[]} logs
+ * @property {LogEntry[]} logs
  * @property {string[]} files
  * @property {string|null} selectedFile
  * @property {string|null} repoHash
@@ -109,6 +116,40 @@ export const initialState = {
     socket: null,
 };
 
+// Console message colors using Tailwind classes
+/**
+ * @type {Record<string, string>}
+ */
+export const CONSOLE_COLORS = {
+    SYSTEM: "text-slate-500 dark:text-slate-400",
+    ERROR: "text-red-600 dark:text-red-400",
+    WEBCONTAINER: "text-slate-800 dark:text-slate-200 font-mono",
+    SOCKET: "text-emerald-600 dark:text-emerald-400",
+    CURRENT_USER: "text-cyan-600 dark:text-cyan-400",
+};
+
+/**
+ * Generates a consistent color for a user based on their ID
+ * @param {number} userId - The user's ID
+ * @param {number|null} currentUserId - The current user's ID
+ * @returns {string} Tailwind color class
+ */
+export function getUserColor(userId, currentUserId) {
+    if (userId === currentUserId) {
+        return CONSOLE_COLORS.CURRENT_USER;
+    }
+
+    const userColors = [
+        "text-blue-600 dark:text-blue-400",
+        "text-amber-600 dark:text-amber-400",
+        "text-pink-600 dark:text-pink-400",
+        "text-teal-600 dark:text-teal-400",
+        "text-indigo-600 dark:text-indigo-400",
+    ];
+
+    return userColors[userId % userColors.length];
+}
+
 /**
  * Reducer function to manage state transitions.
  * @param {State} state
@@ -120,7 +161,10 @@ export function reducer(state, action) {
         switch (action.type) {
             case "CONNECTING":
                 draft.connectionState = "connecting";
-                draft.logs.push(`Connecting to ${action.repoURL}...`);
+                draft.logs.push({
+                    message: `Connecting to ${action.repoURL}...`,
+                    color: CONSOLE_COLORS.SOCKET,
+                });
                 draft.repoURL = action.repoURL;
                 draft.error = null;
                 draft.socket = action.socket;
@@ -137,7 +181,10 @@ export function reducer(state, action) {
                 draft.files = action.files;
                 draft.repoHash = action.repoHash;
                 draft.currentCommit = action.commit;
-                draft.logs.push(`Connected to repository at commit ${action.commit}`);
+                draft.logs.push({
+                    message: `Connected to repository at commit ${action.commit}`,
+                    color: CONSOLE_COLORS.SYSTEM,
+                });
                 draft.error = null;
                 break;
             }
@@ -156,7 +203,10 @@ export function reducer(state, action) {
                 break;
 
             case "LOG":
-                draft.logs.push(action.message);
+                draft.logs.push({
+                    message: action.message,
+                    color: action.color || CONSOLE_COLORS.SYSTEM,
+                });
                 break;
 
             case "SELECT_FILE":
@@ -168,7 +218,7 @@ export function reducer(state, action) {
                 draft.repoHash = action.repoHash;
                 draft.currentCommit = action.commit;
                 // Clear selected file if it's no longer in the files list
-                if (!action.files.includes(draft.selectedFile)) {
+                if (draft.selectedFile && !action.files.includes(draft.selectedFile)) {
                     draft.selectedFile = null;
                 }
                 break;
@@ -184,7 +234,10 @@ export function reducer(state, action) {
                     return;
                 }
                 draft.users.set(action.user.id, action.user);
-                draft.logs.push(`${action.user.name} (id: ${action.user.id}) joined the room`);
+                draft.logs.push({
+                    message: `${action.user.name} (id: ${action.user.id}) joined the room`,
+                    color: getUserColor(action.user.id, draft.user?.id || null),
+                });
                 break;
 
             case "USER_LEFT": {
@@ -194,7 +247,10 @@ export function reducer(state, action) {
                     return;
                 }
                 draft.users.delete(action.id);
-                draft.logs.push(`${leavingUser.name} (id: ${leavingUser.id}) left the room`);
+                draft.logs.push({
+                    message: `${leavingUser.name} (id: ${leavingUser.id}) left the room`,
+                    color: getUserColor(leavingUser.id, draft.user?.id || null),
+                });
                 break;
             }
 
@@ -204,7 +260,10 @@ export function reducer(state, action) {
                     console.error(`User ${action.userId} not found in users list`);
                     return;
                 }
-                draft.logs.push(`<${user.name}> ${action.content}`);
+                draft.logs.push({
+                    message: `<${user.name}> ${action.content}`,
+                    color: getUserColor(action.userId, draft.user?.id || null),
+                });
                 break;
             }
         }

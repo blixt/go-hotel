@@ -136,7 +136,7 @@ export function useSetupMonaco() {
  * @property {string} value - Current value/content of the editor
  * @property {(value: string) => void} [onChange] - Callback when editor content changes
  * @property {boolean} [readOnly=false] - Whether the editor is in read-only mode
- * @property {MarkerData[]} [markers=[]] - Array of diagnostic markers to display
+ * @property {unknown[]} [markers=[]] - Array of diagnostic markers to display
  * @property {() => void} [onSave] - Callback when save action is triggered
  */
 

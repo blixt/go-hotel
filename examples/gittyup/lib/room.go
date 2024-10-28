@@ -44,10 +44,10 @@ func RoomInit(roomID string) (*RoomMetadata, error) {
 		}
 	} else {
 		// Pull the latest changes if the repository exists.
-		// if err := PullRepo(repoPath); err != nil {
-		// 	log.Println("Pull error:", err)
-		// 	return nil, err
-		// }
+		if err := PullRepo(repoPath); err != nil {
+			log.Println("Pull error:", err)
+			return nil, err
+		}
 	}
 
 	// Get the current commit hash.

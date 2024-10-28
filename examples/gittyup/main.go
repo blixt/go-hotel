@@ -40,7 +40,7 @@ func init() {
 
 func main() {
 	fs := http.FileServer(http.Dir("static"))
-	http.Handle("/", fs)
+	http.Handle("/", addSecurityHeaders(fs))
 
 	http.HandleFunc("GET /v1/repo/{repo...}", serveWs)
 	http.HandleFunc("GET /v1/file/{repoHash}/{commit}/{path...}", serveFile)
@@ -189,4 +189,14 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", contentType)
 	w.Write(output)
+}
+
+func addSecurityHeaders(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Cross-Origin-Embedder-Policy", "credentialless")
+			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		}
+		handler.ServeHTTP(w, r)
+	})
 }
