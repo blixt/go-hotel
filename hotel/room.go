@@ -228,7 +228,7 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) FindClient(predicate func
 	clients := r.clients
 	r.mu.RUnlock()
 	for client := range clients {
-		if predicate(client.metadata) {
+		if predicate(client.Metadata()) {
 			return client
 		}
 	}
