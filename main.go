@@ -160,7 +160,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 }
 
 // roomInit initializes a new room with the given ID
-func roomInit(id string) (*RoomMetadata, error) {
+func roomInit(ctx context.Context, id string) (*RoomMetadata, error) {
 	// Initialization code (e.g., load data from DB)
 	return &RoomMetadata{
 		Name: "Test",

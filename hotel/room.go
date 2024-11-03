@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type RoomInitFunc[RoomMetadata any] func(id string) (metadata *RoomMetadata, err error)
+type RoomInitFunc[RoomMetadata any] func(ctx context.Context, id string) (metadata *RoomMetadata, err error)
 
 type RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType any] func(ctx context.Context, room *Room[RoomMetadata, ClientMetadata, DataType])
 
@@ -54,8 +54,13 @@ func newRoom[RoomMetadata, ClientMetadata, DataType any](id string, init RoomIni
 			}
 		}()
 
-		metadata, err := init(id)
+		metadata, err := init(ctx, id)
 		if err != nil {
+			return err
+		}
+		// TODO: We should return as soon as the context is cancelled, rather
+		// than waiting on the init function to return.
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		room.metadata = metadata
