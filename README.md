@@ -151,6 +151,115 @@ room.Broadcast(ChatMessage{Content: "Announcement to everyone"})
 room.BroadcastExcept(sender, ChatMessage{Content: "Message from sender"})
 ```
 
+## Advanced Behaviors
+
+### Handling Long-Running Room Initialization
+
+The room initialization function is executed asynchronously when a room is first created. This means you can perform time-consuming tasks without blocking:
+
+```go
+h := hotel.New(
+    // Room init function that performs expensive operations
+    func(ctx context.Context, id string) (*RoomMetadata, error) {
+        // Load data from a database
+        data, err := loadFromDatabase(id)
+        if err != nil {
+            return nil, fmt.Errorf("failed to load room data: %w", err)
+        }
+        
+        // Process the data (potentially time-consuming)
+        processedData, err := processData(data)
+        if err != nil {
+            return nil, fmt.Errorf("failed to process room data: %w", err)
+        }
+        
+        return &RoomMetadata{
+            CreatedAt: time.Now(),
+            Data: processedData,
+        }, nil
+    },
+    roomHandlerFunc,
+)
+```
+
+When calling `GetOrCreateRoom()`, the hotel will wait for initialization to complete before returning the room:
+
+```go
+room, err := hotel.GetOrCreateRoom("room-id")
+if err != nil {
+    // Handle initialization error
+    log.Printf("Failed to create room: %v", err)
+    return
+}
+// Room is now fully initialized and ready to use
+```
+
+If the initialization fails, the room is automatically cleaned up and removed from the hotel.
+
+### Automatic Room Cleanup
+
+Rooms are automatically closed and removed from the hotel when they become empty (all clients have left or disconnected). By default, empty rooms are closed after 2 minutes of inactivity:
+
+```go
+// The default auto-close delay is 2 minutes
+const DefaultAutoCloseDelay = 2 * time.Minute
+```
+
+This automatic cleanup helps manage resources by ensuring that unused rooms don't stay in memory indefinitely.
+
+### Message Buffering and Handling Client Disconnections
+
+The system includes built-in message buffering to handle temporary network delays:
+
+- Each client has a buffer channel with capacity for 256 messages
+- If this buffer fills up (e.g., if a client is slow or unresponsive), the client is automatically disconnected
+- The system properly handles client disconnections by emitting leave events and removing clients from rooms
+
+```go
+// When sending messages, check for errors that might indicate disconnection
+if err := room.SendToClient(client, message); err != nil {
+    log.Printf("Failed to send message, client likely disconnected: %v", err)
+    // No need to call RemoveClient - it's handled automatically when send fails
+}
+```
+
+### Handling Room Context Cancellation
+
+Each room has its own context that's canceled when the room is closed. You can use this to clean up resources or stop goroutines when a room is closed:
+
+```go
+func roomHandler(ctx context.Context, room *Room[RoomMetadata, ClientMetadata, DataType]) {
+    // Start some background work
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ctx.Done():
+            // Room is closed, clean up and return
+            log.Printf("Room %s closed, stopping handler", room.ID())
+            return
+            
+        case <-ticker.C:
+            // Do periodic work
+            room.Broadcast(Message{Content: "Server heartbeat"})
+            
+        case event := <-room.Events():
+            // Handle events
+            // ...
+        }
+    }
+}
+```
+
+### Thread Safety
+
+The hotel, rooms, and clients are designed to be thread-safe:
+
+- Multiple goroutines can safely call methods on the same hotel, room, or client
+- The implementation uses appropriate mutexes to ensure concurrent operations are safe
+- Event handling is designed to be performed in a single goroutine per room for simplicity
+
 ## License
 
 MIT License © 2025 Blixt
