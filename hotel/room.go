@@ -12,10 +12,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// RoomInitFunc is a function that initializes a room with the given ID.
+// It returns room metadata and any error that occurred during initialization.
 type RoomInitFunc[RoomMetadata any] func(ctx context.Context, id string) (metadata *RoomMetadata, err error)
 
+// RoomHandlerFunc is a function that handles room events and operations.
+// It is called after a room is successfully initialized.
 type RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType any] func(ctx context.Context, room *Room[RoomMetadata, ClientMetadata, DataType])
 
+// Room represents a virtual space where clients can connect and interact.
+// It manages client connections, message delivery, and room lifecycle.
+// Generic type parameters:
+// - RoomMetadata: Custom data associated with the room
+// - ClientMetadata: Custom data associated with each client in the room
+// - DataType: The type of messages exchanged between clients in the room
 type Room[RoomMetadata, ClientMetadata, DataType any] struct {
 	initGroup errgroup.Group
 
@@ -82,18 +92,25 @@ func newRoom[RoomMetadata, ClientMetadata, DataType any](id string, init RoomIni
 	return room
 }
 
+// ID returns the room's unique identifier.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) ID() string {
 	return r.id
 }
 
+// Events returns a channel that provides events occurring in the room,
+// such as clients joining, leaving, or sending custom data.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Events() <-chan Event[ClientMetadata, DataType] {
 	return r.eventsCh
 }
 
+// Metadata returns the room's metadata.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Metadata() *RoomMetadata {
 	return r.metadata
 }
 
+// NewClient creates and adds a new client to the room with the given metadata.
+// It emits a join event and cancels any scheduled room closure.
+// Returns an error if the room is closed.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) NewClient(metadata *ClientMetadata) (*Client[ClientMetadata, DataType], error) {
 	r.mu.Lock()
 	select {
@@ -120,6 +137,9 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) NewClient(metadata *Clien
 	}
 }
 
+// RemoveClient removes a client from the room, emits a leave event, and closes the client.
+// If this was the last client, it schedules room closure after a delay.
+// Returns an error if the client is not found in the room.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) RemoveClient(client *Client[ClientMetadata, DataType]) error {
 	r.mu.Lock()
 	if _, exists := r.clients[client]; !exists {
@@ -149,6 +169,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) RemoveClient(client *Clie
 	return nil
 }
 
+// Emit sends an event to the room's event channel.
+// If the channel is full, it logs a warning and closes the room.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Emit(event Event[ClientMetadata, DataType]) {
 	select {
 	case r.eventsCh <- event:
@@ -158,6 +180,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Emit(event Event[ClientMe
 	}
 }
 
+// HandleClientData processes data received from a client and emits it as a custom event.
+// Returns an error if the client is not found in the room.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) HandleClientData(client *Client[ClientMetadata, DataType], data DataType) error {
 	r.mu.RLock()
 	_, exists := r.clients[client]
@@ -173,6 +197,9 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) HandleClientData(client *
 	return nil
 }
 
+// SendToClient sends data to a specific client in the room.
+// If the client is disconnected or there's an error sending, it removes the client from the room.
+// Returns an error if the client is not found or if sending fails.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) SendToClient(client *Client[ClientMetadata, DataType], data DataType) error {
 	r.mu.RLock()
 	_, exists := r.clients[client]
@@ -187,6 +214,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) SendToClient(client *Clie
 	return nil
 }
 
+// Broadcast sends data to all clients in the room.
+// If any client is disconnected or there's an error sending, it removes that client.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Broadcast(data DataType) {
 	r.mu.RLock()
 	clients := r.clients
@@ -199,6 +228,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Broadcast(data DataType) 
 	}
 }
 
+// BroadcastExcept sends data to all clients in the room except the specified one.
+// If any client is disconnected or there's an error sending, it removes that client.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) BroadcastExcept(except *Client[ClientMetadata, DataType], data DataType) {
 	r.mu.RLock()
 	clients := r.clients
@@ -213,6 +244,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) BroadcastExcept(except *C
 	}
 }
 
+// Close shuts down the room, cancels any scheduled close timer, and closes all clients.
+// After this method is called, the room cannot be used anymore.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Close() {
 	r.cancelCloseTimer()
 	r.cancel()
@@ -228,6 +261,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Close() {
 	// close(r.eventsCh)
 }
 
+// FindClient returns the first client whose metadata matches the given predicate.
+// Returns nil if no matching client is found.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) FindClient(predicate func(*ClientMetadata) bool) *Client[ClientMetadata, DataType] {
 	r.mu.RLock()
 	clients := r.clients
@@ -240,6 +275,7 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) FindClient(predicate func
 	return nil
 }
 
+// Clients returns a slice containing all the clients currently in the room.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) Clients() []*Client[ClientMetadata, DataType] {
 	r.mu.RLock()
 	clients := r.clients
@@ -251,6 +287,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Clients() []*Client[Clien
 	return clientsSlice
 }
 
+// scheduleClose sets a timer to close the room after a delay if it remains empty.
+// This is used for automatic cleanup of unused rooms.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) scheduleClose() {
 	r.closeTimerMu.Lock()
 	defer r.closeTimerMu.Unlock()
@@ -269,6 +307,8 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) scheduleClose() {
 	})
 }
 
+// cancelCloseTimer cancels any pending room close timer.
+// This is called when clients join the room or the room is manually closed.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) cancelCloseTimer() {
 	r.closeTimerMu.Lock()
 	defer r.closeTimerMu.Unlock()

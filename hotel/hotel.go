@@ -5,6 +5,12 @@ import (
 	"sync"
 )
 
+// Hotel manages a collection of virtual rooms that can be created on demand.
+// It handles room lifecycle including creation, access, and cleanup when rooms are no longer needed.
+// Generic type parameters:
+// - RoomMetadata: Custom data associated with each room
+// - ClientMetadata: Custom data associated with each client
+// - DataType: The type of messages exchanged between clients in rooms
 type Hotel[RoomMetadata, ClientMetadata, DataType any] struct {
 	mu      sync.RWMutex
 	rooms   map[string]*Room[RoomMetadata, ClientMetadata, DataType]
@@ -12,6 +18,9 @@ type Hotel[RoomMetadata, ClientMetadata, DataType any] struct {
 	handler RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType]
 }
 
+// New creates a new Hotel instance with the provided room initialization and handler functions.
+// The init function will be called when creating a new room to initialize its metadata.
+// The handler function will be called to handle room events and logic when a room is created.
 func New[RoomMetadata, ClientMetadata, DataType any](init RoomInitFunc[RoomMetadata], handler RoomHandlerFunc[RoomMetadata, ClientMetadata, DataType]) *Hotel[RoomMetadata, ClientMetadata, DataType] {
 	return &Hotel[RoomMetadata, ClientMetadata, DataType]{
 		rooms:   make(map[string]*Room[RoomMetadata, ClientMetadata, DataType]),
@@ -20,6 +29,9 @@ func New[RoomMetadata, ClientMetadata, DataType any](init RoomInitFunc[RoomMetad
 	}
 }
 
+// GetOrCreateRoom returns an existing room with the given ID or creates a new one if it doesn't exist.
+// If the room initialization fails, the room is cleaned up and an error is returned.
+// The room is automatically removed from the hotel when it's closed.
 func (h *Hotel[RoomMetadata, ClientMetadata, DataType]) GetOrCreateRoom(id string) (*Room[RoomMetadata, ClientMetadata, DataType], error) {
 	if id == "" {
 		return nil, errors.New("invalid room id: cannot be empty")

@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+// Client represents a connection to a room. It handles the bidirectional communication
+// between the room and the connected client, managing message buffering and delivery.
+// Generic type parameters:
+// - ClientMetadata: Custom data associated with the client
+// - DataType: The type of messages exchanged with the client
 type Client[ClientMetadata, DataType any] struct {
 	metadata  *ClientMetadata
 	bufferCh  chan DataType
@@ -50,14 +55,18 @@ func newClient[ClientMetadata, DataType any](metadata *ClientMetadata) *Client[C
 	return c
 }
 
+// Context returns the client's context, which is canceled when the client is closed.
 func (c *Client[ClientMetadata, DataType]) Context() context.Context {
 	return c.ctx
 }
 
+// Metadata returns the client's metadata.
 func (c *Client[ClientMetadata, DataType]) Metadata() *ClientMetadata {
 	return c.metadata
 }
 
+// send queues data to be sent to the client. It returns an error if the client
+// is disconnected or if the buffer is full (which also disconnects the client).
 func (c *Client[ClientMetadata, DataType]) send(data DataType) error {
 	select {
 	case <-c.ctx.Done():
@@ -71,11 +80,14 @@ func (c *Client[ClientMetadata, DataType]) send(data DataType) error {
 	}
 }
 
+// Receive returns a channel that provides data sent to this client.
+// This channel is closed when the client disconnects.
 func (c *Client[ClientMetadata, DataType]) Receive() <-chan DataType {
 	// Return the channel that only the internal client goroutine writes to.
 	return c.sendCh
 }
 
+// Close disconnects the client, which closes the receive channel and cancels the client context.
 func (c *Client[ClientMetadata, DataType]) Close() {
 	c.closeOnce.Do(func() {
 		c.cancel()

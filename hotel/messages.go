@@ -9,10 +9,14 @@ import (
 // Envelope points at a User and a Message
 // User is backed by one or more Client instances (authed and has id)
 
+// Message is an interface for message types that can be registered and created dynamically.
+// Each message must have a unique type identifier string.
 type Message interface {
 	Type() string
 }
 
+// MessageRegistry is a map of message type identifiers to their corresponding Go types.
+// It provides a way to dynamically create message instances of registered types.
 type MessageRegistry[M Message] map[string]reflect.Type
 
 // Register adds one or more message types to the registry.
