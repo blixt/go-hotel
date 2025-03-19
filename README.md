@@ -1,14 +1,15 @@
 # go-hotel
 
-A lightweight, flexible framework for building real-time room-based applications in Go. The package provides a type-safe way to manage virtual rooms where clients can connect, communicate, and exchange messages.
+A type-safe framework for building real-time, room-based applications in Go.
 
-## Features
+## Overview
 
-- **Type-safe with Go generics**: Define your own custom metadata and message types
-- **Room-based architecture**: Clients join specific rooms for isolated communication
-- **Event-driven design**: React to clients joining, leaving, and sending messages
-- **Automatic room lifecycle management**: Rooms are automatically cleaned up when empty
-- **Graceful handling of disconnections**: Automatically manages client connection lifecycles
+`go-hotel` provides a simple architecture for real-time applications:
+
+- **Hotel**: Manages room creation and lifecycle
+- **Room**: Contains clients and processes events
+- **Client**: Maintains connection with automatic buffering
+- **Event**: Join, leave, or custom message from a client
 
 ## Installation
 
@@ -16,252 +17,298 @@ A lightweight, flexible framework for building real-time room-based applications
 go get github.com/blixt/go-hotel
 ```
 
-## Basic Usage
+## Quick Start
 
 ```go
 package main
 
 import (
     "context"
-    "fmt"
     "log"
-    "net/http"
-    "time"
-
     "github.com/blixt/go-hotel/hotel"
-    "github.com/gorilla/websocket"
 )
 
-// Define your metadata types
-type RoomMetadata struct {
-    CreatedAt time.Time
-}
+// 1. Define your metadata and message types
+type RoomData struct{ Name string }
+type UserData struct{ ID, Username string }
 
-type ClientMetadata struct {
-    Username string
-}
+// 2. Define a message type with required Type() method
+type ChatMessage struct{ Content string `json:"content"` }
 
-// Define message types
-type ChatMessage struct {
-    Content string
-}
+func (m ChatMessage) Type() string { return "chat" }
 
 func main() {
-    // Create a new hotel
+    // 3. Create a hotel
     h := hotel.New(
-        // Room initialization function
-        func(ctx context.Context, id string) (*RoomMetadata, error) {
-            return &RoomMetadata{CreatedAt: time.Now()}, nil
+        // 4. Define room initialization function
+        func(ctx context.Context, id string) (*RoomData, error) {
+            return &RoomData{Name: id}, nil
         },
-        // Room handler function
-        func(ctx context.Context, room *hotel.Room[RoomMetadata, ClientMetadata, ChatMessage]) {
-            // Handle room events
+        // 5. Define room event handler
+        func(ctx context.Context, room *hotel.Room[RoomData, UserData, hotel.Message]) {
             for {
                 select {
                 case <-ctx.Done():
                     return
                 case event := <-room.Events():
+                    // 6. Handle different event types
                     switch event.Type {
                     case hotel.EventJoin:
-                        // Notify everyone about the new client
-                        username := event.Client.Metadata().Username
-                        log.Printf("User %s joined room %s", username, room.ID())
-                        // Broadcast a welcome message
-                        room.BroadcastExcept(event.Client, ChatMessage{
-                            Content: fmt.Sprintf("User %s joined the chat", username),
-                        })
+                        log.Printf("User joined: %s", event.Client.Metadata().Username)
+                        
                     case hotel.EventLeave:
-                        username := event.Client.Metadata().Username
-                        log.Printf("User %s left room %s", username, room.ID())
-                        room.Broadcast(ChatMessage{
-                            Content: fmt.Sprintf("User %s left the chat", username),
-                        })
+                        log.Printf("User left: %s", event.Client.Metadata().Username)
+                        
                     case hotel.EventCustom:
-                        // Handle custom message
-                        msg := event.Data
-                        log.Printf("Message in room %s: %s", room.ID(), msg.Content)
-                        // Broadcast the message to everyone
-                        room.Broadcast(msg)
+                        // 7. Type switch for custom messages
+                        switch msg := event.Data.(type) {
+                        case *ChatMessage:
+                            sender := event.Client.Metadata().Username
+                            log.Printf("Chat: %s: %s", sender, msg.Content)
+                            // 8. Broadcast message to other clients
+                            room.BroadcastExcept(event.Client, msg)
+                        }
                     }
                 }
             }
         },
     )
 
-    // Set up your HTTP handlers for WebSocket connections...
+    // 9. Create a room and add a client
+    room, _ := h.GetOrCreateRoom("room1")
+    client, _ := room.NewClient(&UserData{ID: "user1", Username: "Alice"})
+    
+    // 10. Send a message
+    room.HandleClientData(client, &ChatMessage{Content: "Hello!"})
 }
 ```
 
-## Key Concepts
+## Core Concepts
 
 ### Hotel
 
-The `Hotel` is a container that manages all rooms. It handles room creation, retrieval, and cleanup.
+The Hotel manages all your rooms:
+
+```go
+// Create a hotel with room init and handler functions
+hotel := hotel.New(roomInitFunc, roomHandlerFunc)
+
+// Get or create a room
+room, err := hotel.GetOrCreateRoom("room-id")
+```
 
 ### Room
 
-A `Room` represents a virtual space where clients can connect and interact. Each room has:
+Rooms manage clients and process events:
 
-- A unique ID
-- Custom metadata (defined by you)
-- A collection of connected clients
-- An event channel for room events
+```go
+// Get room details
+id := room.ID()
+metadata := room.Metadata()
+
+// Client operations
+clients := room.Clients()
+client := room.FindClient(func(meta *UserData) bool {
+    return meta.Username == "Bob"
+})
+
+// Communication
+chatMsg := &ChatMessage{Content: "Hello everyone"}
+room.Broadcast(chatMsg)                     // Send to all
+room.BroadcastExcept(client, chatMsg)       // Send to all except one
+err := room.SendToClient(client, chatMsg)   // Send to specific client
+
+// Lifecycle
+room.RemoveClient(client)                   // Remove a client
+room.Close()                                // Close the room
+```
+
+Rooms are automatically cleaned up when empty after 2 minutes.
 
 ### Client
 
-A `Client` represents a connection to a room. It handles:
-
-- Bidirectional communication
-- Message buffering
-- Connection lifecycle management
-
-### Events
-
-The system is event-driven, with built-in events:
-
-- `EventJoin`: When a client joins a room
-- `EventLeave`: When a client leaves a room
-- `EventCustom`: When a client sends data to the room
-
-## Advanced Usage
-
-### Finding Clients
+Clients represent connected users:
 
 ```go
-// Find a client by username
-client := room.FindClient(func(metadata *ClientMetadata) bool {
-    return metadata.Username == "john"
-})
-```
+// Create a client
+client, err := room.NewClient(&UserData{ID: "user2", Username: "Bob"})
 
-### Targeted Messages
+// Client properties
+metadata := client.Metadata()
+ctx := client.Context()  // Cancelled when client disconnects
 
-```go
-// Send a message to a specific client
-room.SendToClient(client, ChatMessage{Content: "Private message"})
-```
-
-### Broadcasting
-
-```go
-// Send a message to all clients in the room
-room.Broadcast(ChatMessage{Content: "Announcement to everyone"})
-
-// Send a message to all clients except the sender
-room.BroadcastExcept(sender, ChatMessage{Content: "Message from sender"})
-```
-
-## Advanced Behaviors
-
-### Handling Long-Running Room Initialization
-
-The room initialization function is executed asynchronously when a room is first created. This means you can perform time-consuming tasks without blocking:
-
-```go
-h := hotel.New(
-    // Room init function that performs expensive operations
-    func(ctx context.Context, id string) (*RoomMetadata, error) {
-        // Load data from a database
-        data, err := loadFromDatabase(id)
-        if err != nil {
-            return nil, fmt.Errorf("failed to load room data: %w", err)
-        }
-        
-        // Process the data (potentially time-consuming)
-        processedData, err := processData(data)
-        if err != nil {
-            return nil, fmt.Errorf("failed to process room data: %w", err)
-        }
-        
-        return &RoomMetadata{
-            CreatedAt: time.Now(),
-            Data: processedData,
-        }, nil
-    },
-    roomHandlerFunc,
-)
-```
-
-When calling `GetOrCreateRoom()`, the hotel will wait for initialization to complete before returning the room:
-
-```go
-room, err := hotel.GetOrCreateRoom("room-id")
-if err != nil {
-    // Handle initialization error
-    log.Printf("Failed to create room: %v", err)
-    return
+// Reading messages sent to this client
+for msg := range client.Receive() {
+    // Process incoming message
 }
-// Room is now fully initialized and ready to use
+
+// Manually close connection
+client.Close()
 ```
 
-If the initialization fails, the room is automatically cleaned up and removed from the hotel.
+Clients have a buffer capacity of 256 messages and will disconnect if full.
 
-### Automatic Room Cleanup
+### Messages
 
-Rooms are automatically closed and removed from the hotel when they become empty (all clients have left or disconnected). By default, empty rooms are closed after 2 minutes of inactivity:
-
-```go
-// The default auto-close delay is 2 minutes
-const DefaultAutoCloseDelay = 2 * time.Minute
-```
-
-This automatic cleanup helps manage resources by ensuring that unused rooms don't stay in memory indefinitely.
-
-### Message Buffering and Handling Client Disconnections
-
-The system includes built-in message buffering to handle temporary network delays:
-
-- Each client has a buffer channel with capacity for 256 messages
-- If this buffer fills up (e.g., if a client is slow or unresponsive), the client is automatically disconnected
-- The system properly handles client disconnections by emitting leave events and removing clients from rooms
+Messages must implement the Message interface:
 
 ```go
-// When sending messages, check for errors that might indicate disconnection
-if err := room.SendToClient(client, message); err != nil {
-    log.Printf("Failed to send message, client likely disconnected: %v", err)
-    // No need to call RemoveClient - it's handled automatically when send fails
+type Message interface {
+    Type() string
 }
 ```
 
-### Handling Room Context Cancellation
-
-Each room has its own context that's canceled when the room is closed. You can use this to clean up resources or stop goroutines when a room is closed:
+Example message types:
 
 ```go
-func roomHandler(ctx context.Context, room *Room[RoomMetadata, ClientMetadata, DataType]) {
-    // Start some background work
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
+type ChatMessage struct {
+    Content string `json:"content"`
+}
+
+func (m ChatMessage) Type() string {
+    return "chat"
+}
+
+type MoveMessage struct {
+    X int `json:"x"`
+    Y int `json:"y"`
+}
+
+func (m MoveMessage) Type() string {
+    return "move"
+}
+```
+
+The library also provides a `MessageRegistry` for dynamically creating messages by their type string:
+
+```go
+// Create a registry
+registry := hotel.MessageRegistry[hotel.Message]{}
+
+// Register your message types
+registry.Register(&ChatMessage{}, &MoveMessage{})
+
+// Create a message from a type string
+msg, err := registry.Create("chat")
+if err == nil {
+    // Cast to the concrete type
+    chatMsg := msg.(*ChatMessage)
+    chatMsg.Content = "Hello!"
+}
+```
+
+This is useful when parsing messages from external formats where the message type comes as a string.
+
+## WebSocket Example
+
+```go
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+    // 1. Setup connection
+    conn, _ := upgrader.Upgrade(w, r, nil)
+    roomID := r.URL.Query().Get("room")
+    userID := r.URL.Query().Get("id")
+    username := r.URL.Query().Get("user")
     
-    for {
-        select {
-        case <-ctx.Done():
-            // Room is closed, clean up and return
-            log.Printf("Room %s closed, stopping handler", room.ID())
-            return
+    // 2. Create/join room
+    room, _ := hotelManager.GetOrCreateRoom(roomID)
+    client, _ := room.NewClient(&UserData{ID: userID, Username: username})
+    defer room.RemoveClient(client)
+    
+    // 3. Handle incoming messages (WebSocket → Room)
+    go func() {
+        for {
+            _, rawData, err := conn.ReadMessage()
+            if err != nil {
+                return // Connection closed
+            }
             
-        case <-ticker.C:
-            // Do periodic work
-            room.Broadcast(Message{Content: "Server heartbeat"})
-            
-        case event := <-room.Events():
-            // Handle events
-            // ...
+            // 4. Parse message from your protocol
+            msg, _ := parseMessage(rawData)
+            room.HandleClientData(client, msg)
         }
+    }()
+    
+    // 5. Handle outgoing messages (Room → WebSocket)
+    for msg := range client.Receive() {
+        // 6. Format message for your protocol
+        data, _ := formatMessage(msg)
+        conn.WriteMessage(websocket.TextMessage, data)
     }
 }
 ```
 
-### Thread Safety
+## Protocol Implementation
 
-The hotel, rooms, and clients are designed to be thread-safe:
+The library doesn't dictate how you serialize messages. Here's a simple example using a "type JSON" format:
 
-- Multiple goroutines can safely call methods on the same hotel, room, or client
-- The implementation uses appropriate mutexes to ensure concurrent operations are safe
-- Event handling is designed to be performed in a single goroutine per room for simplicity
+```go
+// 1. Create message registry for type-safe message handling
+var registry = hotel.MessageRegistry[hotel.Message]{}
+
+// 2. Register message types during initialization
+func init() {
+    registry.Register(&ChatMessage{}, &MoveMessage{})
+}
+
+// 3. Parse an incoming "type JSON" formatted message
+func parseMessage(data []byte) (hotel.Message, error) {
+    parts := strings.SplitN(string(data), " ", 2)
+    if len(parts) != 2 {
+        return nil, fmt.Errorf("invalid format")
+    }
+    
+    // 4. Create message of the correct type
+    msg, err := registry.Create(parts[0])
+    if err != nil {
+        return nil, err
+    }
+    
+    // 5. Populate with JSON data
+    if err := json.Unmarshal([]byte(parts[1]), msg); err != nil {
+        return nil, err
+    }
+    
+    return msg, nil
+}
+
+// 6. Format a message as "type JSON"
+func formatMessage(msg hotel.Message) ([]byte, error) {
+    data, err := json.Marshal(msg)
+    if err != nil {
+        return nil, err
+    }
+    return []byte(fmt.Sprintf("%s %s", msg.Type(), string(data))), nil
+}
+```
+
+## Error Handling
+
+Always check errors when creating rooms, clients, and sending messages:
+
+```go
+room, err := hotel.GetOrCreateRoom("room-id")
+if err != nil {
+    // Room initialization failed
+    return
+}
+
+client, err := room.NewClient(&UserData{ID: "user1", Username: "Alice"})
+if err != nil {
+    // Room is closed or invalid client data
+    return
+}
+
+chatMsg := &ChatMessage{Content: "Hello!"}
+err = room.SendToClient(client, chatMsg)
+if err != nil {
+    // Client is disconnected or buffer is full
+}
+```
+
+## Thread Safety
+
+The library is designed to be thread-safe - multiple goroutines can safely interact with the same hotel, room, or client.
 
 ## License
 
 MIT License © 2025 Blixt
-
-See [LICENSE](LICENSE) file for details.
