@@ -280,7 +280,7 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Clients() []*Client[Clien
 	r.mu.RLock()
 	clients := r.clients
 	r.mu.RUnlock()
-	clientsSlice := make([]*Client[ClientMetadata, DataType], 0, len(r.clients))
+	clientsSlice := make([]*Client[ClientMetadata, DataType], 0, len(clients))
 	for client := range clients {
 		clientsSlice = append(clientsSlice, client)
 	}
