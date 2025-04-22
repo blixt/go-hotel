@@ -1,4 +1,4 @@
-module github.com/blixt/go-hotel
+module github.com/flitsinc/go-hotel
 
 go 1.23.2
 

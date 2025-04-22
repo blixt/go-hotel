@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blixt/go-hotel/hotel"
+	"github.com/flitsinc/go-hotel/hotel"
 	"github.com/gorilla/websocket"
 )
 

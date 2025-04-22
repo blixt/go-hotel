@@ -14,7 +14,7 @@ A type-safe framework for building real-time, room-based applications in Go.
 ## Installation
 
 ```bash
-go get github.com/blixt/go-hotel
+go get github.com/flitsinc/go-hotel
 ```
 
 ## Quick Start
@@ -25,7 +25,7 @@ package main
 import (
     "context"
     "log"
-    "github.com/blixt/go-hotel/hotel"
+    "github.com/flitsinc/go-hotel/hotel"
 )
 
 // 1. Define your metadata and message types
