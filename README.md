@@ -146,7 +146,7 @@ for msg := range client.Receive() {
 client.Close()
 ```
 
-Clients have a buffer capacity of 256 messages and will disconnect if full.
+Clients have a buffer capacity of 256 messages by default and will disconnect if full.
 
 ### Messages
 

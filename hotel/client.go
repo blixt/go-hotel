@@ -20,11 +20,11 @@ type Client[ClientMetadata, DataType any] struct {
 	closeOnce sync.Once
 }
 
-func newClient[ClientMetadata, DataType any](metadata *ClientMetadata) *Client[ClientMetadata, DataType] {
+func newClient[ClientMetadata, DataType any](bufferSize int, metadata *ClientMetadata) *Client[ClientMetadata, DataType] {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client[ClientMetadata, DataType]{
 		metadata: metadata,
-		bufferCh: make(chan DataType, 256),
+		bufferCh: make(chan DataType, bufferSize),
 		sendCh:   make(chan DataType),
 		ctx:      ctx,
 		cancel:   cancel,

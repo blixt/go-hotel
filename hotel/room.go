@@ -109,9 +109,16 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) Metadata() *RoomMetadata 
 }
 
 // NewClient creates and adds a new client to the room with the given metadata.
-// It emits a join event and cancels any scheduled room closure.
-// Returns an error if the room is closed.
+// It emits a join event and cancels any scheduled room closure. Returns an
+// error if the room is closed.
 func (r *Room[RoomMetadata, ClientMetadata, DataType]) NewClient(metadata *ClientMetadata) (*Client[ClientMetadata, DataType], error) {
+	return r.NewClientWithBuffer(256, metadata)
+}
+
+// NewClientWithBuffer creates and adds a new client to the room with the given
+// buffer size and metadata. It emits a join event and cancels any scheduled
+// room closure. Returns an error if the room is closed.
+func (r *Room[RoomMetadata, ClientMetadata, DataType]) NewClientWithBuffer(bufferSize int, metadata *ClientMetadata) (*Client[ClientMetadata, DataType], error) {
 	r.mu.Lock()
 	select {
 	case <-r.ctx.Done():
@@ -121,7 +128,7 @@ func (r *Room[RoomMetadata, ClientMetadata, DataType]) NewClient(metadata *Clien
 		// Cancel any pending close timer
 		r.cancelCloseTimer()
 
-		client := newClient[ClientMetadata, DataType](metadata)
+		client := newClient[ClientMetadata, DataType](bufferSize, metadata)
 		newClients := make(map[*Client[ClientMetadata, DataType]]struct{}, len(r.clients)+1)
 		for c := range r.clients {
 			newClients[c] = struct{}{}
